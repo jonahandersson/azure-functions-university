@@ -20,7 +20,7 @@ This lessons consists of the following exercises:
 |6| [Homework](#6-homework)
 |7| [More Info](#7-more-info)
 
-> 📝 **Tip** - If you're stuck at any point you can have a look at the [source code]() in this repository.
+📝 **Tip** - If you're stuck at any point you can have a look at the [source code]() in this repository.
 
 ---
 
@@ -36,8 +36,10 @@ This lessons consists of the following exercises:
 | The [Microsoft Azure Storage Emulator](https://docs.microsoft.com/en-us/azure/storage/common/storage-use-emulator) | 2-5
 | Install the latest [.NET Core SDK 3.1 or above](https://dotnet.microsoft.com/download) | 2-5 
 | The [Azure Storage Explorer](https://azure.microsoft.com/en-us/features/storage-explorer/) | 2-5
+| Postman Client | 2-5 
 
-> 📝 **Tip** - Up to now the Durable Functions are not compatible with Azurite with respect to the emulation of storage. 
+
+📝 **Tip** - Up to now the Durable Functions are not compatible with Azurite with respect to the emulation of storage. 
 So if you are on a non-Windows machine you must use a hybrid approach and connect your Durable Functions to a storage in Azure. This means that you need an Azure subscription.
 
 ## 1. Introduction to Azure Durable Functions
@@ -99,12 +101,19 @@ The second task depends on the result of the first task.
 
 The schematic setup with Azure Durable Functions looks like this:
 
+![Durable Function Execution Schema](img/SchemaDurableFunction0.png)
+
 The Client Function is triggered by an HTTP request and consequently triggers the Orchestrator Function. Internally this means that a message is enqueued to a control queue in a task hub. We do not have to care about that as we will see later.
+
+![Durable Function Execution Trigger](img/SchemaDurableFunction1.png)
 
 After that the Client Function completes and the Orchestrator Function takes over and schedules the Activity Function. Internally, Durable Functions fetches the task from the control queue in the task hub to start the Orchestrator and enqueues a task to the work-item queue to schedule the Activity Function.
 
+![Durable Function Execution Orchestrator](img/SchemaDurableFunction2.png)
+
 The execution of the Orchestrator Function stops once an Activity Function is scheduled. It will resume, and replay the entire orchestration once the Activity Function is complete.
 
+![Durable Function Execution Activity](img/SchemaDurableFunction3.png)
 
 When the Orchestrator Function is replayed it will check if there are tasks (Activity Functions) left to execute. In our scenario the second Activity Functions is scheduled. This cycle continues until all Activity Function calls in the Orchestrator have been executed.
 
@@ -120,127 +129,134 @@ The first function that we create is the Client Function of our Durable Function
 
 #### Steps
 
-1. Create a directory for our function app and navigate into the directory.
+1. Create a local directory for our function app and navigate into the directory.
 
-   ```
-   ```
-
-2. Start Visual Studio Code.
-
-   ```
+  ```powershell
+   mkdir DurableFunctionApp
+   cd DurableFunctionApp
    ```
 
-3. Create a new project via the Azure Functions Extension.
-   1. Name the project `DurableFunctionApp`.
-   2. Choose `CSharp` as language.
-   3. Select `Durable Functions HTTP Starter` as a template as we want to trigger the execution of the Durable Function via an HTTP call.
-   4. Name the function `DurableFunctionStarter`.
-   5. Set the authorization level of the function to `Anonymous`.
+2. Start Visual Studio Code
+
+ ```powershell
+   code .
+   ```
+
+3. Create a new empty project via the Azure Functions Extension
+   Press F1 (Ctrl or Cmd + Shift + P) to open the command palette, type `az functions create ` to find the option to create project. 
+   1. Name the project `DurableFunctionApp`
+   2. Choose `C#` as language.
+   3. There will two run time versions  `.NET Core 3.1 LTS` and  `.NET 5 Isolated` to choose from.  Choose `.NET Core 3.1 LTS`.
+   4. Skip the selection of template by choosing  `Skip for now `
+ 
+4. Create the orchestrator function to the durable app  
+   1. In the command palette, type and search for `Azure Function: Create Function `
+   2. Select `Durable Functions Orchestration` template 
+   3. Type `DurableFunctionsOrchestration` as the name of orchestration function
+   4. You will be asked to choose a storage account which is necessary, 
+      you may choose to setup a new Azure Storage Account through your Azure Subscription or you temporarily choose `Local Storage Emulator` 
+
+
+   > 🔎 **Observation** - Take a look into the `local.settings.json` file. You will find details to build and run the Durable Function app like your AzureWebJobStorage and your functions worker runtime which is dotnet.
+
+   ` "AzureWebJobsStorage": "UseDevelopmentStorage=true"`
+   `  "FUNCTIONS_WORKER_RUNTIME": "dotnet"`
+     
+   ![local.settings.json](img/dotnetdf-localsettings.jpg)
+
+    > 🔎 **Observation** - Take a look into the `host.json` file. 
+
+   ![host.json](img/dotnetdf-hostfile.PNG)
+
+   5. The  `Durable Functions Orchestration` template, creates the three main types of of functions :`Orchestrator`, `Client (HTTP Trigger)`, and `Activity`
 
 ### 2.2 The Orchestrator Function
 
-Now we create the Orchestrator Function, which is responsible for the orchestration of Activity Functions.
+The orchestrator function that was created from the template is the function that is responsible for the orchestration of Activity Functions.
+In the orchestrator function, workflow of your tasks (activity) are described. 
+
+  > 🔎 **Observation** - Take a look into the `DurableFunctionsOrchestration_Orchestrator` function.
+
+ ```csharp
+        [FunctionName("DurableFunctionsOrchestration_Orchestrator")]
+        public static async Task<List<string>> RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context)
+        {
+            var outputs = new List<string>();
+
+            // Replace "hello" with the name of your Durable Activity Function.
+            outputs.Add(await context.CallActivityAsync<string>("DurableFunctionsOrchestration_HelloActivity", "Tokyo"));
+            outputs.Add(await context.CallActivityAsync<string>("DurableFunctionsOrchestration_HelloActivity", "Seattle"));
+            outputs.Add(await context.CallActivityAsync<string>("DurableFunctionsOrchestration_HelloActivity", "London"));
+
+            // returns ["Hello Tokyo!", "Hello Seattle!", "Hello London!"]
+            return outputs;
+        }
+   ```
+
+### 2.3 The Client Function
+
+The client function that was created from the template is the function that is responsible for the triggering and starting the orchestration workflow.
+Client function is a trigger-function like for example below, an HTTP-trigger that initiates and starts `DurableFunctionsOrchestration_Orchestrator`.
+
+  > 🔎 **Observation** - Take a look into the `DurableFunctionsOrchestration_HttpStart` function.
+
+ ```csharp
+      [FunctionName("DurableFunctionsOrchestration_HttpStart")]
+        public static async Task<HttpResponseMessage> HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            // Function input comes from the request content.
+            string instanceId = await starter.StartNewAsync("DurableFunctionsOrchestration_Orchestrator", null);
+
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }    return starter.CreateCheckStatusResponse(req, instanceId);
+        
+   ```
+
+### 2.4 The Activity Function
+
+The activity function that was created from the template is the function is the function where you do write your logic for the task that you need to do. 
+Activity functions are the basic unit of work in a durable function orchestration. Activity functions are the functions and tasks that are orchestrated in the process. 
+
+  > 🔎 **Observation** - Take a look into the `DurableFunctionsOrchestration_HelloActivity` function which is the task that greetings every city name passed from the orchestrator using the function chaining pattern. 
+
+ ```csharp
+      [FunctionName("DurableFunctionsOrchestration_HelloActivity")]
+        public static string SayHello([ActivityTrigger] string name, ILogger log)
+        {
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+   ```
 
 #### Steps
 
-1. Create a new function via the Azure Functions Extension in VSCode.
-   1. Select `Durable Functions orchestrator` as a template.
-   2. Name the function `DurableFunctionsOrchestrator`.
-
-   > 📝 **Tip** - Remove the comments from the index.ts file. The code of the Orchestrator Function should look like this:
-
-   ````csharp
- 
-   ````
-
-   > 🔎 **Observation** - Take a look into the `function.json` file of the Orchestrator Function. You find the binding type `orchestrationTrigger` which classifies the function as an Orchestrator Function.
-
-   > ❔ **Question** - Can you derive how the Orchestrator Function triggers the Activity Functions? Do you see potential issues in the way the functions are called?
-
-### 2.3 The Activity Function
-
-To complete the Durable Function setup we create an Activity Function.
-#### Steps
-
-1. Create a new function via the Azure Functions Extension in VSCode.
-   1. Select `Durable Functions activity` as a template.
-   2. Name the function `HelloCity`.
-
-   > 📝 **Tip** 
-
-   ````csharp
- 
-   ````
-
-
-   > 🔎 **Observation** - 
-
-   > ❔ **Question** - If you trigger the orchestration now, would you run into an error? What adoption do you have to make (hint: function name in orchestrator)?
-
-### 2.4 The First Execution
+### 2.5 The First Execution
 
 Execute the Durable Function and experience its mechanics.
 
 #### Steps
 
-1. Start the Azure Storage Emulator.
-2. Set the value of the `AzureWebJobsStorage` in your `local.settings.json` to `UseDevelopmentStorage=true`. This instructs the Azure Functions local runtime to use your local Azure Storage Emulator.
-3. Start the function via 
-   > 🔎 **Observation** - You can see that the runtime is serving three functions.
+#### 2.5.1  
 
-   
-4. Start the Client Function via the tool of your choice e.g. Postman.
-   > ❔ **Question** - What route do you have to use?
 
-   > 🔎 **Observation** - The result of the orchestration is not directly returned to the caller. Instead the Client Function is returning the ID of the orchestrator instance and several HTTP endpoints to interact with this instance.
-     
-
-5. Call the `statusQueryGetUri` endpoint to receive the results of the orchestration.
-
-  
-   > 🔎 **Observation** - The status endpoint returns not only the result but also some metadata with respect to the overall execution.
-
-6. Check the resulting entries in your Azure Storage Emulator
-   > ❔ **Question** - How many tables have been created by the Azure Functions runtime? What do they contain?
-
-## 3. Implementing a "Real-World" Scenario
-
-In this section we develop some more realistic setup for our Durable Function. Assume the following situation:
-Assume that we have the name of a GitHub repository. Now we want to find out who is the owner of this repo. In addition we want to find our some more things about the owner like the real name, the bio etc. To achieve this we must execute two calls in a sequence to the GitHub API:
-
-1. Get the information about the repository itself containing the user ID.
-2. Based on the user ID we fetch the additional information of the user.
-
-The good thing about the GitHub API is that we do not need to care about authentication and API keys. This means that there are some restrictions with respect to the allowed number of calls per minute, but that is fine for our scenario.
-### 3.1 Basic Setup of "Real-World" Scenario
-
-In this section we add the skeleton for the implementation. This time we do not need to create a Client Function again, because we will reuse the one of our prior example. This is possible as the Client Function forwards the requests based on the Orchestrator Function name in the URL of the HTTP call.
+## 3 Implementing a "Real-World" Scenario
 
 #### Steps
 
-1. Create a new function via the Azure Functions Extension in VSCode.
-   1. Select `Durable Functions orchestrator` as a template.
-   2. Name the function `GitHubInfoOrchestrator`.
-2. Create a new function via the Azure Functions Extension in VSCode.
-   1. Select `Durable Functions activity` as a template.
-   2. Name the function `GetRepositoryDetailsByName`.
-3. Create a new function via the Azure Functions Extension in VSCode.
-   1. Select `Durable Functions activity` as a template.
-   2. Name the function `GetUserDetailsById`.
-4. Install the following npm modules for a smooth interaction with the GitHub REST API
-   1. `@octokit/core`
+## 4 Retries - Dealing with Temporal Errors
 
-### 3.2 Implementation of the Orchestrator Function
+### Steps
 
-In this section we implement the Orchestrator Function that defines the call sequence of the Activity Functions and assures the transfer of the result of the first Activity Function to the second one.
-#### Steps
+## 5 Circuit Breaker - Dealing with Timeouts
 
-1. Update the Orchestrator Function `GitHubInfoOrchestrator` to call the two Activity Functions. The first Activity Function is `GetRepositoryDetailsByName`. The returned information of that activity, the user ID, must be transferred to the context of the Durable Function. The second Activity Function is `GetUserDetailsById`. The returned information of the second Activity Function is returned as response by the Orchestrator Function. The Orchestrator Function code should look like this:
-
-### 3.3 Implementation of the Activity Function `GetRepositoryDetailsByName`
-
-In this section we implement the Activity Function `GetRepositoryDetailsByName`. We fetch the data of the repository by name making use of the `/search/repositories` endpoint.
-
+### Steps
 
 ## 6. Homework
 
@@ -260,3 +276,4 @@ In addition we also have an additional homework that deals with a more advanced 
 
 ---
 [🔼 Lessons Index](../../../README.md)
+ 
